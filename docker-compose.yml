@@ -1,8 +1,9 @@
 # One command: docker compose up --build
 # Browser: http://localhost:8080
 #
-# Backend never downloads models — weights are COPY'd into the image.
-# Frontend nginx proxies /api/* → backend:8000/*
+# DETR + BLIP weights are downloaded ONCE during image build (not from git;
+# files exceed GitHub's 100 MB limit). Runtime is offline (HF_HUB_OFFLINE=1).
+# catdog.pt is copied from the repo. Frontend nginx proxies /api/* → backend.
 
 services:
   backend:

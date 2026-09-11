@@ -22,23 +22,23 @@
   const SCORE_MIN = 0.7; // belt-and-suspenders; backend already filters
 
   const MODE_META = {
+    classify: {
+      hint: "My trained model — from-scratch CNN (catdog.pt) on 275 images. Classifies cat vs dog.",
+      run: "Run classification",
+      busy: "Classifying…",
+      path: "/classify",
+    },
     detect: {
-      hint: "DETR (facebook/detr-resnet-50) — draws boxes for objects with score > 0.7.",
+      hint: "Pretrained extension — DETR (facebook/detr-resnet-50). Boxes for objects with score > 0.7.",
       run: "Run detection",
       busy: "Detecting objects… (CPU, a few seconds)",
       path: "/detect",
     },
     caption: {
-      hint: "BLIP (Salesforce/blip-image-captioning-base) — generates a short English caption.",
+      hint: "Pretrained extension — BLIP (Salesforce/blip-image-captioning-base). Short English caption.",
       run: "Run caption",
       busy: "Generating caption… (CPU, a few seconds)",
       path: "/caption",
-    },
-    classify: {
-      hint: "Cat vs Dog — my from-scratch CNN (catdog.pt), trained on 275 images.",
-      run: "Run classification",
-      busy: "Classifying…",
-      path: "/classify",
     },
   };
 
@@ -72,7 +72,7 @@
 
   let currentFile = null;
   let objectUrl = null;
-  let mode = "detect";
+  let mode = "classify";
   let busy = false;
   /** @type {{ detections: any[], image_width: number, image_height: number } | null} */
   let lastDetect = null;
@@ -406,5 +406,5 @@
     // Acceptable for Phase 2; user can click Run again after a big resize.
   });
 
-  setMode("detect");
+  setMode("classify");
 })();

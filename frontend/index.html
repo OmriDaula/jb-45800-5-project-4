@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- Phase 2: point at local FastAPI. Phase 3 nginx will set this to /api. -->
   <meta name="api-base" content="http://127.0.0.1:8000" />
-  <title>Image Models — Detection · Caption · Cat vs Dog</title>
+  <title>Image Models — Cat vs Dog · Detection · Caption</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -19,7 +19,7 @@
       <span class="brand-mark" aria-hidden="true"></span>
       <div>
         <h1>Image Models</h1>
-        <p class="tagline">Three PyTorch models · one browser · CPU inference</p>
+        <p class="tagline">My Cat vs Dog CNN · plus DETR &amp; BLIP extensions · PyTorch</p>
       </div>
     </div>
   </header>
@@ -47,27 +47,30 @@
       </div>
     </section>
 
-    <!-- Mode tabs + actions -->
+    <!-- Mode tabs + actions — Cat vs Dog first (core deliverable) -->
     <section class="panel work-panel">
       <div class="tabs" role="tablist" aria-label="Model mode">
-        <button type="button" class="tab is-active" role="tab" aria-selected="true" data-mode="detect" id="tab-detect">
+        <button type="button" class="tab is-active" role="tab" aria-selected="true" data-mode="classify" id="tab-classify">
+          Cat vs Dog
+          <span class="tab-badge tab-badge-mine">my model</span>
+        </button>
+        <button type="button" class="tab" role="tab" aria-selected="false" data-mode="detect" id="tab-detect">
           Object Detection
+          <span class="tab-badge tab-badge-ext">pretrained</span>
         </button>
         <button type="button" class="tab" role="tab" aria-selected="false" data-mode="caption" id="tab-caption">
           Image Caption
-        </button>
-        <button type="button" class="tab" role="tab" aria-selected="false" data-mode="classify" id="tab-classify">
-          Cat vs Dog
+          <span class="tab-badge tab-badge-ext">pretrained</span>
         </button>
       </div>
 
       <p class="mode-hint" id="mode-hint">
-        DETR (facebook/detr-resnet-50) — draws boxes for objects with score &gt; 0.7.
+        My from-scratch CNN (catdog.pt) — trained on 275 images. Classifies cat vs dog.
       </p>
 
       <div class="actions">
         <button type="button" id="run-btn" class="btn btn-primary" disabled>
-          <span id="run-label">Run detection</span>
+          <span id="run-label">Run classification</span>
           <span id="run-spinner" class="spinner hidden" aria-hidden="true"></span>
         </button>
       </div>
@@ -75,22 +78,8 @@
       <div id="status" class="status" role="status" aria-live="polite"></div>
       <div id="error" class="error hidden" role="alert"></div>
 
-      <!-- Per-mode results -->
-      <div id="result-detect" class="result-pane is-active" data-pane="detect">
-        <p class="result-placeholder" id="detect-placeholder">
-          Run detection to draw labeled boxes on the image above.
-        </p>
-        <ul id="detect-list" class="detect-list hidden"></ul>
-      </div>
-
-      <div id="result-caption" class="result-pane" data-pane="caption">
-        <p class="result-placeholder" id="caption-placeholder">
-          Run captioning to generate a sentence describing the image.
-        </p>
-        <blockquote id="caption-text" class="caption-text hidden"></blockquote>
-      </div>
-
-      <div id="result-classify" class="result-pane" data-pane="classify">
+      <!-- Per-mode results — classify pane active by default -->
+      <div id="result-classify" class="result-pane is-active" data-pane="classify">
         <p class="result-placeholder" id="classify-placeholder">
           Run classification to get cat vs dog with a confidence bar.
         </p>
@@ -109,12 +98,29 @@
           <p class="p-dog-note" id="p-dog-note"></p>
         </div>
         <p class="honest-note">
-          A CNN I trained from scratch on 275 images — it reliably detects dogs but struggles with cats.
+          <strong>My trained model</strong> — a CNN I built from scratch on 275 images.
+          It reliably detects dogs but struggles with cats (data ceiling: only 95 cat training images).
           Full investigation (scored 100/100):
           <a href="https://github.com/OmriDaula/jb-45800-5-mission-4" target="_blank" rel="noopener noreferrer">
             github.com/OmriDaula/jb-45800-5-mission-4
           </a>
         </p>
+      </div>
+
+      <div id="result-detect" class="result-pane" data-pane="detect">
+        <p class="pane-subtitle">Pretrained extension — HuggingFace DETR</p>
+        <p class="result-placeholder" id="detect-placeholder">
+          Run detection to draw labeled boxes on the image above.
+        </p>
+        <ul id="detect-list" class="detect-list hidden"></ul>
+      </div>
+
+      <div id="result-caption" class="result-pane" data-pane="caption">
+        <p class="pane-subtitle">Pretrained extension — HuggingFace BLIP</p>
+        <p class="result-placeholder" id="caption-placeholder">
+          Run captioning to generate a sentence describing the image.
+        </p>
+        <blockquote id="caption-text" class="caption-text hidden"></blockquote>
       </div>
     </section>
   </main>

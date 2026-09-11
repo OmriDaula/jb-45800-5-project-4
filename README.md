@@ -1,9 +1,13 @@
-# Image Models — Object Detection · Captioning · Cat vs Dog
+# Image Models — Cat vs Dog · Detection · Caption
 
-A browser app that runs **three PyTorch models** behind one FastAPI server,
-served with nginx via Docker Compose. Upload an image, switch tabs, get results.
+A browser app whose **core deliverable** is a Cat vs Dog CNN **I trained from scratch**,
+plus two HuggingFace models as optional extensions — all PyTorch, one FastAPI server,
+nginx + Docker Compose.
 
-**PyTorch only — no TensorFlow anywhere.**
+**PyTorch only — no TensorFlow anywhere** (including my Cat/Dog model, rebuilt in PyTorch for this project).
+
+For a full walkthrough of every component and design choice, see
+**[ARCHITECTURE.md](./ARCHITECTURE.md)**.
 
 ## Quick start (what the lecturer runs)
 
@@ -18,21 +22,24 @@ Then open **http://localhost:8080**
 - First build downloads HuggingFace DETR + BLIP weights **into the image** (several minutes, once).
 - Containers start **offline** — no Hub traffic at runtime.
 - Wait until the backend is healthy (models load on CPU, ~1–2 minutes), then use the UI.
+- The default tab is **Cat vs Dog** (my trained model).
 
 Stop with `Ctrl+C`, or if started detached: `docker compose down`.
 
 ## What it does
 
-| Tab | Model | Endpoint |
-|-----|--------|----------|
-| Object Detection | `facebook/detr-resnet-50` | `POST /api/detect` |
-| Image Caption | `Salesforce/blip-image-captioning-base` | `POST /api/caption` |
-| Cat vs Dog | My from-scratch CNN (`catdog.pt`) | `POST /api/classify` |
+| Tab | Role | Model | Endpoint |
+|-----|------|--------|----------|
+| **Cat vs Dog** | **My trained model (core)** | From-scratch CNN (`catdog.pt`) | `POST /api/classify` |
+| Object Detection | Pretrained extension | `facebook/detr-resnet-50` | `POST /api/detect` |
+| Image Caption | Pretrained extension | `Salesforce/blip-image-captioning-base` | `POST /api/caption` |
+
+**One-line summary:** *My model classifies; DETR localizes (where); BLIP describes (what).*
 
 ## Architecture
 
 ```
-  Browser  (http://localhost:8080)
+  Browser  (http://localhost:8080)  — default tab: Cat vs Dog
       |
       |  static HTML/CSS/JS
       |  /api/*  JSON + image upload
@@ -45,46 +52,61 @@ Stop with `Ctrl+C`, or if started detached: `docker compose down`.
               +---------------------+---------------------+
               |                     |                     |
               v                     v                     v
-        DETR (local)          BLIP (local)         CatDog CNN
-        model_cache/          model_cache/         model/catdog.pt
-        (baked at build)      (baked at build)     (committed in git)
+        CatDog CNN            DETR (HF)             BLIP (HF)
+        model/catdog.pt       model_cache/          model_cache/
+        (committed in git)    (baked at build)      (baked at build)
 ```
 
 - **nginx** serves the SPA and reverse-proxies `/api/` → `backend:8000/`.
 - **FastAPI** loads every model **once** at startup (`local_files_only=True`).
 - **No dataset** in this repo. **No training at runtime** — inference only.
 
-## The three models
+## The models
 
-### 1. Object Detection — DETR
+### 1. Cat vs Dog — my own model (the core deliverable)
 
-- HuggingFace: [`facebook/detr-resnet-50`](https://huggingface.co/facebook/detr-resnet-50)
-- Returns boxes `[x, y, w, h]` + labels + scores; UI draws detections with score > 0.7.
-- Weights are fetched during **Docker image build**, then served offline.
+A convolutional neural network I **built and trained from scratch in PyTorch**
+(no pretrained weights, no transfer learning).
 
-### 2. Image Caption — BLIP
-
-- HuggingFace: [`Salesforce/blip-image-captioning-base`](https://huggingface.co/Salesforce/blip-image-captioning-base)
-- Returns a short English sentence describing the image.
-- Same build-time fetch / runtime-offline pattern as DETR.
-
-### 3. Cat vs Dog — my CNN (mission 4)
-
-A small CNN I trained **from scratch** (no transfer learning) on **275 images**:
-four conv blocks (16→32→64→128), dense head, dropout, class imbalance via
-`pos_weight`, checkpointed on lowest unweighted validation loss.
-
-- Weights in git: `backend/model/catdog.pt` (~2.4 MB, 621,857 parameters).
-- Honest limits: it reliably leans toward dogs and struggles with cats —
-  expected on a tiny dataset.
-- Full calibration story (experiments, metrics, scored **100/100**):
+- **Architecture:** input 128×128 RGB → rescaling → 4 Conv+MaxPool blocks
+  (16→32→64→128) → Flatten → Dense(64) → Dropout(0.3) → single logit
+  (sigmoid at inference). **~621k parameters.**
+- **Data:** small, imbalanced cats/dogs set (**275 train / 70 val**). The trained
+  weights (`backend/model/catdog.pt`) **are committed** to this repo, as the
+  assignment requires. The **dataset itself is NOT committed**.
+- **Honest performance:** ~**68–73%** validation accuracy — it detects dogs
+  reliably but struggles with cats, because it learned from only **95 cat**
+  training images. That is a known **data-ceiling** limitation, documented in full.
+- Full training investigation (7 experiments, git branches, calibration) scored
+  **100/100**:
   **https://github.com/OmriDaula/jb-45800-5-mission-4**
+
+### 2. Extensions — pretrained models from HuggingFace
+
+Beyond the required single model, I added **two pretrained PyTorch models** to
+demonstrate additional computer-vision tasks. These are **off-the-shelf from
+HuggingFace**, downloaded at **docker build time** and baked into the image
+(not trained by me; not committed — each weight file exceeds GitHub’s 100 MB limit).
+
+- **DETR (`facebook/detr-resnet-50`)** — object detection: finds **where**
+  objects are, draws bounding boxes with confidence scores (UI keeps score > 0.7).
+- **BLIP (`Salesforce/blip-image-captioning-base`)** — image captioning:
+  describes **what** is happening in the image in a sentence.
+
+**My model classifies; DETR localizes (where); BLIP describes (what).**
+
+## Why PyTorch only
+
+The whole project is **PyTorch — no TensorFlow**. That includes Cat vs Dog:
+the original mission-4 model was Keras; for this project I **rebuilt and
+retrained the same architecture in PyTorch** so DETR, BLIP, and my CNN share
+one stack, one Docker image, and one mental model.
 
 ## Model weights & GitHub’s 100 MB limit
 
 | File | Size | In git? | How the lecturer gets it |
 |------|------|---------|---------------------------|
-| `backend/model/catdog.pt` | ~2.4 MB | **Yes** (required) | clone |
+| `backend/model/catdog.pt` | ~2.4 MB | **Yes** (my trained model) | clone |
 | DETR `model.safetensors` | ~**159 MB** | **No** (>100 MB) | `docker compose build` downloads once |
 | BLIP `model.safetensors` | ~**944 MB** | **No** (>100 MB) | `docker compose build` downloads once |
 
@@ -102,7 +124,7 @@ project/
 │   ├── Dockerfile
 │   ├── app.py              # FastAPI: /health /detect /caption /classify
 │   ├── catdog_model.py     # shared CNN definition
-│   ├── model/catdog.pt     # committed
+│   ├── model/catdog.pt     # committed (core deliverable)
 │   ├── scripts/            # train + one-time HF download helpers
 │   └── requirements.txt
 └── frontend/
@@ -133,9 +155,9 @@ cd frontend && python3.11 -m http.server 5500
 
 Add your browser screenshots here (URL bar showing `localhost:8080`):
 
-1. **Object Detection** — boxes on a real photo  
-2. **Image Caption** — generated sentence  
-3. **Cat vs Dog** — prediction + confidence bar  
+1. **Cat vs Dog** — prediction + confidence bar (default tab)  
+2. **Object Detection** — boxes on a real photo  
+3. **Image Caption** — generated sentence  
 
 ---
 
