@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Phase 2: point at local FastAPI. Phase 3 nginx will set this to /api. -->
+  <meta name="api-base" content="http://127.0.0.1:8000" />
+  <title>Image Models — Detection · Caption · Cat vs Dog</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <h1>Image Models</h1>
+        <p class="tagline">Three PyTorch models · one browser · CPU inference</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Shared upload -->
+    <section class="panel upload-panel" aria-labelledby="upload-heading">
+      <h2 id="upload-heading" class="sr-only">Upload</h2>
+
+      <label class="dropzone" id="dropzone" for="file-input">
+        <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" />
+        <div class="dropzone-inner" id="dropzone-empty">
+          <strong>Drop an image here</strong>
+          <span>or click to choose · JPEG / PNG / WebP</span>
+        </div>
+        <div class="preview-wrap hidden" id="preview-wrap">
+          <img id="preview-img" alt="Selected image preview" />
+          <canvas id="detect-canvas" class="hidden" aria-label="Detection result"></canvas>
+        </div>
+      </label>
+
+      <div class="upload-meta">
+        <p id="file-name" class="file-name">No file selected</p>
+        <button type="button" id="clear-btn" class="btn btn-ghost" disabled>Clear</button>
+      </div>
+    </section>
+
+    <!-- Mode tabs + actions -->
+    <section class="panel work-panel">
+      <div class="tabs" role="tablist" aria-label="Model mode">
+        <button type="button" class="tab is-active" role="tab" aria-selected="true" data-mode="detect" id="tab-detect">
+          Object Detection
+        </button>
+        <button type="button" class="tab" role="tab" aria-selected="false" data-mode="caption" id="tab-caption">
+          Image Caption
+        </button>
+        <button type="button" class="tab" role="tab" aria-selected="false" data-mode="classify" id="tab-classify">
+          Cat vs Dog
+        </button>
+      </div>
+
+      <p class="mode-hint" id="mode-hint">
+        DETR (facebook/detr-resnet-50) — draws boxes for objects with score &gt; 0.7.
+      </p>
+
+      <div class="actions">
+        <button type="button" id="run-btn" class="btn btn-primary" disabled>
+          <span id="run-label">Run detection</span>
+          <span id="run-spinner" class="spinner hidden" aria-hidden="true"></span>
+        </button>
+      </div>
+
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+      <div id="error" class="error hidden" role="alert"></div>
+
+      <!-- Per-mode results -->
+      <div id="result-detect" class="result-pane is-active" data-pane="detect">
+        <p class="result-placeholder" id="detect-placeholder">
+          Run detection to draw labeled boxes on the image above.
+        </p>
+        <ul id="detect-list" class="detect-list hidden"></ul>
+      </div>
+
+      <div id="result-caption" class="result-pane" data-pane="caption">
+        <p class="result-placeholder" id="caption-placeholder">
+          Run captioning to generate a sentence describing the image.
+        </p>
+        <blockquote id="caption-text" class="caption-text hidden"></blockquote>
+      </div>
+
+      <div id="result-classify" class="result-pane" data-pane="classify">
+        <p class="result-placeholder" id="classify-placeholder">
+          Run classification to get cat vs dog with a confidence bar.
+        </p>
+        <div id="classify-card" class="classify-card hidden">
+          <div class="classify-row">
+            <span class="classify-label" id="classify-prediction">—</span>
+            <span class="classify-conf" id="classify-confidence">—</span>
+          </div>
+          <div class="bar-track" aria-hidden="true">
+            <div class="bar-fill" id="classify-bar"></div>
+            <div class="bar-marks">
+              <span>cat</span>
+              <span>dog</span>
+            </div>
+          </div>
+          <p class="p-dog-note" id="p-dog-note"></p>
+        </div>
+        <p class="honest-note">
+          A CNN I trained from scratch on 275 images — it reliably detects dogs but struggles with cats.
+          Full investigation (scored 100/100):
+          <a href="https://github.com/OmriDaula/jb-45800-5-mission-4" target="_blank" rel="noopener noreferrer">
+            github.com/OmriDaula/jb-45800-5-mission-4
+          </a>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span>Backend: <code id="api-base-label">http://127.0.0.1:8000</code></span>
+    <span>PyTorch · FastAPI · no TensorFlow</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

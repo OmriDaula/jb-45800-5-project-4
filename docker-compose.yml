@@ -1,0 +1,46 @@
+# One command: docker compose up --build
+# Browser: http://localhost:8080
+#
+# Backend never downloads models — weights are COPY'd into the image.
+# Frontend nginx proxies /api/* → backend:8000/*
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: jb-project4-backend
+    environment:
+      # Belt-and-suspenders with Dockerfile ENV — zero Hub traffic at runtime
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    # Not published to the host — browser talks only to nginx :8080
+    expose:
+      - "8000"
+    healthcheck:
+      # Pure Python — no curl needed in the slim image
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      # DETR + BLIP + catdog load once at startup on CPU — can take 1–2 minutes
+      start_period: 180s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: jb-project4-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

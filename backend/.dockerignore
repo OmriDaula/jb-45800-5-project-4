@@ -1,0 +1,13 @@
+# Keep the image lean. HuggingFace caches are fetched during the image BUILD
+# (see Dockerfile), not copied from the host — so clones stay small and
+# GitHub's 100 MB file limit is not a problem.
+__pycache__
+*.py[cod]
+*.pyo
+.venv
+venv
+samples
+requirements-phase0.txt
+model_cache
+.DS_Store
+*.md

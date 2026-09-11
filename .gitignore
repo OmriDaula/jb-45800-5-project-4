@@ -1,0 +1,32 @@
+# Local Python / OS junk
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.DS_Store
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Dataset must never enter this repo (lives in mission-4)
+data/
+*.zip
+
+# ---------------------------------------------------------------------------
+# HuggingFace weight caches — NOT committed (GitHub rejects files > 100 MB).
+#   DETR  model.safetensors ≈ 159 MB
+#   BLIP  model.safetensors ≈ 944 MB
+# They are downloaded ONCE during `docker compose build` (see backend/Dockerfile)
+# and baked into the image. Containers start with HF_HUB_OFFLINE=1 — no runtime fetch.
+# ---------------------------------------------------------------------------
+backend/model_cache/
+
+# Our trained Cat vs Dog weights MUST be committed (assignment: inference depends on it).
+# backend/model/catdog.pt  ≈ 2.4 MB  → tracked on purpose (do not ignore).
