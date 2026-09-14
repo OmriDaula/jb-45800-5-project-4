@@ -3,12 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Phase 2: point at local FastAPI. Phase 3 nginx will set this to /api. -->
+  <!-- Phase 2: local FastAPI. Docker frontend image rewrites this to /api. -->
   <meta name="api-base" content="http://127.0.0.1:8000" />
   <title>Image Models — Cat vs Dog · Detection · Caption</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -25,7 +22,6 @@
   </header>
 
   <main class="layout">
-    <!-- Shared upload -->
     <section class="panel upload-panel" aria-labelledby="upload-heading">
       <h2 id="upload-heading" class="sr-only">Upload</h2>
 
@@ -47,18 +43,20 @@
       </div>
     </section>
 
-    <!-- Mode tabs + actions — Cat vs Dog first (core deliverable) -->
     <section class="panel work-panel">
       <div class="tabs" role="tablist" aria-label="Model mode">
-        <button type="button" class="tab is-active" role="tab" aria-selected="true" data-mode="classify" id="tab-classify">
+        <button type="button" class="tab is-active" role="tab" id="tab-classify"
+          aria-selected="true" aria-controls="result-classify" data-mode="classify" tabindex="0">
           Cat vs Dog
           <span class="tab-badge tab-badge-mine">my model</span>
         </button>
-        <button type="button" class="tab" role="tab" aria-selected="false" data-mode="detect" id="tab-detect">
+        <button type="button" class="tab" role="tab" id="tab-detect"
+          aria-selected="false" aria-controls="result-detect" data-mode="detect" tabindex="-1">
           Object Detection
           <span class="tab-badge tab-badge-ext">pretrained</span>
         </button>
-        <button type="button" class="tab" role="tab" aria-selected="false" data-mode="caption" id="tab-caption">
+        <button type="button" class="tab" role="tab" id="tab-caption"
+          aria-selected="false" aria-controls="result-caption" data-mode="caption" tabindex="-1">
           Image Caption
           <span class="tab-badge tab-badge-ext">pretrained</span>
         </button>
@@ -78,8 +76,8 @@
       <div id="status" class="status" role="status" aria-live="polite"></div>
       <div id="error" class="error hidden" role="alert"></div>
 
-      <!-- Per-mode results — classify pane active by default -->
-      <div id="result-classify" class="result-pane is-active" data-pane="classify">
+      <div id="result-classify" class="result-pane is-active" role="tabpanel"
+        aria-labelledby="tab-classify" data-pane="classify">
         <p class="result-placeholder" id="classify-placeholder">
           Run classification to get cat vs dog with a confidence bar.
         </p>
@@ -107,7 +105,8 @@
         </p>
       </div>
 
-      <div id="result-detect" class="result-pane" data-pane="detect">
+      <div id="result-detect" class="result-pane" role="tabpanel" hidden
+        aria-labelledby="tab-detect" data-pane="detect">
         <p class="pane-subtitle">Pretrained extension — HuggingFace DETR</p>
         <p class="result-placeholder" id="detect-placeholder">
           Run detection to draw labeled boxes on the image above.
@@ -115,7 +114,8 @@
         <ul id="detect-list" class="detect-list hidden"></ul>
       </div>
 
-      <div id="result-caption" class="result-pane" data-pane="caption">
+      <div id="result-caption" class="result-pane" role="tabpanel" hidden
+        aria-labelledby="tab-caption" data-pane="caption">
         <p class="pane-subtitle">Pretrained extension — HuggingFace BLIP</p>
         <p class="result-placeholder" id="caption-placeholder">
           Run captioning to generate a sentence describing the image.

@@ -89,6 +89,16 @@ Assignment focus = the model **I** trained. The default tab and the “my model�
 badge make that obvious the moment the lecturer opens the page — DETR/BLIP are
 clearly labeled as pretrained extensions.
 
+**Health / readiness:**  
+`GET /health` returns **200 when CatDog (core) is ready**. DETR/BLIP failures
+are listed in the JSON (`models` / `errors`) but do **not** block Compose from
+starting the frontend. `/detect` and `/caption` still return **503** if their
+own model failed; `/classify` works whenever CatDog loaded.
+
+**Course mapping:** the Python Web module teaches Flask and REST principles.
+This project uses **FastAPI** as a framework-level extension while applying the
+same request/response, routing, validation, HTTP status-code and REST concepts.
+
 ---
 
 ## 3. Repository layout (what each file is for)
@@ -256,11 +266,13 @@ Same offline rule: weights live under `model_cache/` inside the image;
 
 ### 5.2 `GET /health`
 
-Returns **200** only when all three models are loaded; otherwise **503**.
+Returns **200 when the core CatDog model is loaded**; otherwise **503**.
 
-This is what Docker Compose waits on (`depends_on: condition: service_healthy`).
-The frontend container does not start until the API is actually ready — not just
-“process started”.
+DETR / BLIP status is included in the JSON (`models`, optional `errors`) but
+does **not** decide the HTTP status. Compose `depends_on: service_healthy`
+therefore unblocks the frontend as soon as **Cat vs Dog** is usable.
+
+Extension endpoints still return **503** individually when their model is missing.
 
 ### 5.3 Shared upload helper `read_rgb_image`
 
@@ -455,12 +467,12 @@ Detection / caption follow the same upload path until step 6; they call
 
 Ask yourself (and be able to answer):
 
-- What is the **core** model vs the **extensions**, and why is that split in the UI?
+- Why does `/health` return 200 if only CatDog loaded (and BLIP failed)?
 - Why is `catdog.pt` in git while DETR/BLIP weights are not?
 - Where do DETR/BLIP weights come from on the lecturer’s laptop?
-- Why does `/health` return 503 during the first minute?
 - Why is `use_pretrained_backbone=False` required offline?
 - Why isn’t `ToTensor()` used for Cat/Dog?
+- Why does the backend enforce a 25 MB upload limit even though nginx also does?
 - How does a box at `(40, 70, 135, 47)` on a 640×480 image get drawn on a 320×240 preview?
 - What is committed in git vs fetched at build vs never stored here (dataset)?
 
@@ -470,5 +482,5 @@ If you can answer those, you can defend every line.
 
 ## 12. Related documents
 
-- `README.md` — clone / run; Cat vs Dog first; screenshot placeholders
+- `README.md` — clone / run; Cat vs Dog first; screenshot checklist
 - Mission 4 (training story): https://github.com/OmriDaula/jb-45800-5-mission-4

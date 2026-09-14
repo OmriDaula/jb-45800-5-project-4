@@ -16,8 +16,8 @@
   --warn: #b54708;
   --shadow: 0 12px 40px rgba(19, 32, 44, 0.08);
   --radius: 14px;
-  --font: "DM Sans", system-ui, sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, monospace;
+  --font: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --mono: "SF Mono", "Menlo", "Consolas", ui-monospace, monospace;
 }
 
 *,

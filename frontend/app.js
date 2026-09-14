@@ -1,25 +1,18 @@
 /**
- * Phase 2 frontend — talks to the Phase 1 FastAPI backend.
+ * Frontend — talks to the FastAPI backend.
  *
- * Modes:
- *   detect   → POST /detect   → canvas boxes (score > 0.7 already filtered server-side)
+ * Modes (Cat vs Dog is default — core deliverable):
+ *   classify → POST /classify → prediction + confidence bar
+ *   detect   → POST /detect   → canvas boxes (server already filtered by threshold)
  *   caption  → POST /caption  → sentence
- *   classify → POST /classify → prediction + confidence bar (P(dog) on a cat←→dog axis)
- *
- * Local Phase 2: API at http://127.0.0.1:8000
- * Docker Phase 3: same-origin /api proxy (nginx) — auto-detected below.
  */
 
 (() => {
   "use strict";
 
-  // API base: ?api= override → <meta name="api-base"> → localhost:8000 (Phase 2 default).
-  // Docker (Phase 3) will change the meta content to "/api" (nginx reverse proxy).
   const params = new URLSearchParams(window.location.search);
   const metaApi = document.querySelector('meta[name="api-base"]')?.content?.trim();
   const API = params.get("api") || metaApi || "http://127.0.0.1:8000";
-
-  const SCORE_MIN = 0.7; // belt-and-suspenders; backend already filters
 
   const MODE_META = {
     classify: {
@@ -29,7 +22,7 @@
       path: "/classify",
     },
     detect: {
-      hint: "Pretrained extension — DETR (facebook/detr-resnet-50). Boxes for objects with score > 0.7.",
+      hint: "Pretrained extension — DETR (facebook/detr-resnet-50). Bounding boxes from the server.",
       run: "Run detection",
       busy: "Detecting objects… (CPU, a few seconds)",
       path: "/detect",
@@ -42,7 +35,6 @@
     },
   };
 
-  // --- DOM ---
   const fileInput = document.getElementById("file-input");
   const dropzone = document.getElementById("dropzone");
   const dropzoneEmpty = document.getElementById("dropzone-empty");
@@ -69,17 +61,17 @@
   const classifyConfidence = document.getElementById("classify-confidence");
   const classifyBar = document.getElementById("classify-bar");
   const pDogNote = document.getElementById("p-dog-note");
+  const tabs = Array.from(document.querySelectorAll(".tab"));
 
   let currentFile = null;
   let objectUrl = null;
   let mode = "classify";
   let busy = false;
-  /** @type {{ detections: any[], image_width: number, image_height: number } | null} */
+  /** @type {{ detections: any[], image_width: number, image_height: number, threshold?: number } | null} */
   let lastDetect = null;
 
   apiBaseLabel.textContent = API;
 
-  // --- Helpers ---
   function setError(message) {
     if (!message) {
       errorEl.classList.add("hidden");
@@ -123,7 +115,6 @@
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     objectUrl = URL.createObjectURL(file);
     previewImg.onload = () => {
-      // Keep canvas sized later when we draw; for now show the photo.
       canvas.classList.add("hidden");
       previewImg.classList.remove("hidden");
     };
@@ -156,21 +147,28 @@
 
   function setMode(next) {
     mode = next;
-    document.querySelectorAll(".tab").forEach((tab) => {
+    tabs.forEach((tab) => {
       const active = tab.dataset.mode === mode;
       tab.classList.toggle("is-active", active);
       tab.setAttribute("aria-selected", active ? "true" : "false");
+      tab.tabIndex = active ? 0 : -1;
     });
     document.querySelectorAll(".result-pane").forEach((pane) => {
-      pane.classList.toggle("is-active", pane.dataset.pane === mode);
+      const active = pane.dataset.pane === mode;
+      pane.classList.toggle("is-active", active);
+      pane.hidden = !active;
     });
     const meta = MODE_META[mode];
     modeHint.textContent = meta.hint;
     runLabel.textContent = meta.run;
 
     if (mode === "detect" && lastDetect) {
-      // Re-show the overlay if we already ran detection on this image.
-      drawDetections(lastDetect.detections, lastDetect.image_width, lastDetect.image_height);
+      drawDetections(
+        lastDetect.detections,
+        lastDetect.image_width,
+        lastDetect.image_height,
+        lastDetect.threshold
+      );
     } else {
       canvas.classList.add("hidden");
       previewImg.classList.remove("hidden");
@@ -178,16 +176,13 @@
   }
 
   /**
-   * Draw the image + boxes on the canvas.
-   * Server boxes are in original pixel space (image_width × image_height).
-   * We size the canvas to the *displayed* image box and scale coordinates.
+   * Draw image + boxes. Server already filtered by threshold — render all returned detections.
    */
-  function drawDetections(detections, imageWidth, imageHeight) {
+  function drawDetections(detections, imageWidth, imageHeight, threshold) {
     const img = previewImg;
-    // Use the laid-out size of the <img> as the canvas CSS + bitmap size.
     const displayW = img.clientWidth;
     const displayH = img.clientHeight;
-    if (!displayW || !displayH) return;
+    if (!displayW || !displayH || !imageWidth || !imageHeight) return;
 
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(displayW * dpr);
@@ -202,24 +197,22 @@
 
     const sx = displayW / imageWidth;
     const sy = displayH / imageHeight;
+    const list = detections || [];
 
-    const visible = detections.filter((d) => d.score > SCORE_MIN);
-
-    visible.forEach((det, i) => {
+    list.forEach((det, i) => {
       const [x, y, w, h] = det.box;
       const rx = x * sx;
       const ry = y * sy;
       const rw = w * sx;
       const rh = h * sy;
 
-      // Distinct but readable stroke per box
       const hue = (i * 47) % 360;
       ctx.strokeStyle = `hsl(${hue} 70% 45%)`;
       ctx.lineWidth = 2.5;
       ctx.strokeRect(rx, ry, rw, rh);
 
       const label = `${det.label} ${(det.score * 100).toFixed(0)}%`;
-      ctx.font = "600 13px DM Sans, system-ui, sans-serif";
+      ctx.font = "600 13px system-ui, sans-serif";
       const padX = 6;
       const padY = 4;
       const textW = ctx.measureText(label).width;
@@ -236,15 +229,15 @@
     previewImg.classList.add("hidden");
     canvas.classList.remove("hidden");
 
-    // Side list
     detectPlaceholder.classList.add("hidden");
     detectList.classList.remove("hidden");
     detectList.innerHTML = "";
-    if (!visible.length) {
-      detectList.innerHTML = "<li>No detections above score 0.7.</li>";
+    if (!list.length) {
+      const t = threshold != null ? threshold : "?";
+      detectList.innerHTML = `<li>No detections above score ${t}.</li>`;
       return;
     }
-    visible
+    list
       .slice()
       .sort((a, b) => b.score - a.score)
       .forEach((det) => {
@@ -270,7 +263,6 @@
     classifyPrediction.classList.toggle("is-dog", pred === "dog");
     classifyConfidence.textContent = `${(data.confidence * 100).toFixed(1)}% confidence`;
 
-    // Bar marker sits at P(dog): 0% = certain cat, 100% = certain dog.
     const pDog = data.p_dog;
     classifyBar.style.left = `${Math.min(100, Math.max(0, pDog * 100))}%`;
     pDogNote.textContent = `P(dog) = ${pDog.toFixed(4)}  ·  threshold 0.5`;
@@ -295,11 +287,7 @@
     body.append("file", currentFile);
 
     try {
-      const res = await fetch(`${API}${meta.path}`, {
-        method: "POST",
-        body,
-      });
-
+      const res = await fetch(`${API}${meta.path}`, { method: "POST", body });
       let payload = null;
       const raw = await res.text();
       try {
@@ -322,11 +310,20 @@
           detections: payload.detections || [],
           image_width: payload.image_width,
           image_height: payload.image_height,
+          threshold: payload.threshold,
         };
-        drawDetections(lastDetect.detections, lastDetect.image_width, lastDetect.image_height);
-        setStatus(`Found ${(payload.detections || []).length} object(s) with score > 0.7.`);
+        drawDetections(
+          lastDetect.detections,
+          lastDetect.image_width,
+          lastDetect.image_height,
+          lastDetect.threshold
+        );
+        const t = payload.threshold != null ? payload.threshold : "";
+        setStatus(
+          `Found ${(payload.detections || []).length} object(s)` +
+            (t !== "" ? ` (score > ${t}).` : ".")
+        );
       } else if (mode === "caption") {
-        // Caption mode uses the plain preview image (no canvas overlay).
         canvas.classList.add("hidden");
         previewImg.classList.remove("hidden");
         showCaption(payload.caption || "");
@@ -349,9 +346,20 @@
     }
   }
 
-  // --- Events ---
-  document.querySelectorAll(".tab").forEach((tab) => {
+  tabs.forEach((tab) => {
     tab.addEventListener("click", () => setMode(tab.dataset.mode));
+    tab.addEventListener("keydown", (e) => {
+      const i = tabs.indexOf(tab);
+      let next = -1;
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (i + 1) % tabs.length;
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (i - 1 + tabs.length) % tabs.length;
+      if (e.key === "Home") next = 0;
+      if (e.key === "End") next = tabs.length - 1;
+      if (next < 0) return;
+      e.preventDefault();
+      tabs[next].focus();
+      setMode(tabs[next].dataset.mode);
+    });
   });
 
   fileInput.addEventListener("change", () => {
@@ -369,7 +377,6 @@
 
   runBtn.addEventListener("click", () => runCurrentMode());
 
-  // Drag & drop
   ["dragenter", "dragover"].forEach((ev) => {
     dropzone.addEventListener(ev, (e) => {
       e.preventDefault();
@@ -392,18 +399,23 @@
     showPreview(file);
   });
 
-  // Clicking the preview (when has-image) opens the file picker again.
   previewWrap.addEventListener("click", () => {
     if (!busy) fileInput.click();
   });
 
-  // Redraw boxes on resize if canvas is visible
+  // Debounced redraw using stored detections — no extra API call.
   let resizeTimer = null;
   window.addEventListener("resize", () => {
-    if (canvas.classList.contains("hidden")) return;
+    if (!lastDetect || mode !== "detect") return;
     clearTimeout(resizeTimer);
-    // We don't keep last payload globally — resize just keeps CSS; full redraw needs re-run.
-    // Acceptable for Phase 2; user can click Run again after a big resize.
+    resizeTimer = setTimeout(() => {
+      drawDetections(
+        lastDetect.detections,
+        lastDetect.image_width,
+        lastDetect.image_height,
+        lastDetect.threshold
+      );
+    }, 100);
   });
 
   setMode("classify");

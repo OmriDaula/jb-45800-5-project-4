@@ -12,7 +12,7 @@ For a full walkthrough of every component and design choice, see
 ## Quick start (what the lecturer runs)
 
 ```bash
-git clone <this-repo-url>
+git clone https://github.com/OmriDaula/jb-45800-5-project-4.git
 cd jb-45800-5-project-4
 docker compose up --build
 ```
@@ -21,7 +21,7 @@ Then open **http://localhost:8080**
 
 - First build downloads HuggingFace DETR + BLIP weights **into the image** (several minutes, once).
 - Containers start **offline** — no Hub traffic at runtime.
-- Wait until the backend is healthy (models load on CPU, ~1–2 minutes), then use the UI.
+- `/health` is ready when **Cat vs Dog** (core) has loaded; DETR/BLIP may still be warming up or degraded.
 - The default tab is **Cat vs Dog** (my trained model).
 
 Stop with `Ctrl+C`, or if started detached: `docker compose down`.
@@ -89,7 +89,7 @@ HuggingFace**, downloaded at **docker build time** and baked into the image
 (not trained by me; not committed — each weight file exceeds GitHub’s 100 MB limit).
 
 - **DETR (`facebook/detr-resnet-50`)** — object detection: finds **where**
-  objects are, draws bounding boxes with confidence scores (UI keeps score > 0.7).
+  objects are, draws bounding boxes with confidence scores (server threshold 0.7).
 - **BLIP (`Salesforce/blip-image-captioning-base`)** — image captioning:
   describes **what** is happening in the image in a sentence.
 
@@ -126,7 +126,9 @@ project/
 │   ├── catdog_model.py     # shared CNN definition
 │   ├── model/catdog.pt     # committed (core deliverable)
 │   ├── scripts/            # train + one-time HF download helpers
-│   └── requirements.txt
+│   ├── tests/              # lightweight API tests (no HF downloads)
+│   ├── requirements.txt
+│   └── requirements-dev.txt
 └── frontend/
     ├── Dockerfile          # nginx + /api proxy
     ├── nginx.conf
@@ -151,13 +153,23 @@ cd frontend && python3.11 -m http.server 5500
 # open http://127.0.0.1:5500  (meta api-base points at :8000)
 ```
 
-## Screenshot placeholders
+### Tests
 
-Add your browser screenshots here (URL bar showing `localhost:8080`):
+```bash
+source .venv/bin/activate
+pip install -r backend/requirements-dev.txt
+PYTHONPATH=backend pytest backend/tests -q
+```
 
-1. **Cat vs Dog** — prediction + confidence bar (default tab)  
-2. **Object Detection** — boxes on a real photo  
-3. **Image Caption** — generated sentence  
+## Screenshots (add before final submission)
+
+Place real browser screenshots here (URL bar showing `localhost:8080`):
+
+1. **Cat vs Dog** — prediction + confidence bar (default tab)
+2. **Object Detection** — DETR bounding boxes on a photo
+3. **Image Caption** — BLIP sentence
+
+*(No placeholder images are committed yet — add the three files and link them when ready.)*
 
 ---
 

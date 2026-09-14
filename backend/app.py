@@ -1,23 +1,22 @@
 """
-Phase 1 — FastAPI backend (PyTorch only, three models).
+FastAPI backend — three PyTorch image models.
 
 Models load ONCE at startup (lifespan), never per request:
-  - DETR   → POST /detect
-  - BLIP   → POST /caption
-  - CatDog → POST /classify
+  - CatDog (core) → POST /classify
+  - DETR (extension) → POST /detect
+  - BLIP (extension) → POST /caption
 
-Plus GET /health for compose healthchecks later.
+GET /health is 200 when the core CatDog model is ready (Compose depends on this).
+Extension failures are reported in JSON but do not block the UI.
 
 Run (from project root, venv active):
-    uvicorn backend.app:app --reload --host 127.0.0.1 --port 8000
-
-Or from backend/:
-    cd backend && uvicorn app:app --reload --port 8000
+    uvicorn backend.app:app --host 127.0.0.1 --port 8000
 """
 
 from __future__ import annotations
 
 import io
+import logging
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -28,16 +27,9 @@ import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from PIL import Image, UnidentifiedImageError
-from transformers import (
-    BlipForConditionalGeneration,
-    BlipProcessor,
-    DetrForObjectDetection,
-    DetrImageProcessor,
-)
+from PIL import Image, ImageFile, UnidentifiedImageError
 
-# Make `import catdog_model` work whether uvicorn is started from repo root
-# (`backend.app:app`) or from inside backend/ (`app:app`).
+# Make `import catdog_model` work from repo root or backend/.
 BACKEND_DIR = Path(__file__).resolve().parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
@@ -45,17 +37,24 @@ if str(BACKEND_DIR) not in sys.path:
 from catdog_model import IMG_SIZE, load_catdog_weights  # noqa: E402
 
 # ----------------------------------------------------------------------------
-# Paths (weights are local — no HuggingFace calls at runtime)
+# Config
 # ----------------------------------------------------------------------------
 DETR_DIR = BACKEND_DIR / "model_cache" / "facebook-detr-resnet-50"
 BLIP_DIR = BACKEND_DIR / "model_cache" / "salesforce-blip-image-captioning-base"
 CATDOG_WEIGHTS = BACKEND_DIR / "model" / "catdog.pt"
 
-SCORE_THRESHOLD = 0.7  # same cutoff as Phase 0 script / frontend boxes
-ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
-ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+SCORE_THRESHOLD = 0.7  # single source of truth for DETR filtering
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB — matches nginx client_max_body_size
+MAX_IMAGE_PIXELS = 25_000_000  # ~5000×5000 — decompression-bomb guard
+ALLOWED_PIL_FORMATS = {"JPEG", "PNG", "WEBP"}
 
 DEVICE = torch.device("cpu")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("image_models")
 
 # Filled in lifespan; endpoints refuse with 503 if a model failed to load.
 state: dict[str, Any] = {
@@ -67,16 +66,21 @@ state: dict[str, Any] = {
     "errors": {},
 }
 
+# Refuse truncated/partial images silently turning into garbage.
+ImageFile.LOAD_TRUNCATED_IMAGES = False
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
 
 # ----------------------------------------------------------------------------
 # Startup / shutdown
 # ----------------------------------------------------------------------------
 def _load_detr() -> None:
     if not DETR_DIR.is_dir():
-        raise FileNotFoundError(f"DETR cache missing: {DETR_DIR}")
+        raise FileNotFoundError("DETR cache directory missing")
+    from transformers import DetrForObjectDetection, DetrImageProcessor
+
     processor = DetrImageProcessor.from_pretrained(DETR_DIR, local_files_only=True)
     # use_pretrained_backbone=False: do NOT let timm download resnet50 from the Hub.
-    # The trained backbone weights already live in our local model.safetensors.
     model = DetrForObjectDetection.from_pretrained(
         DETR_DIR,
         local_files_only=True,
@@ -90,7 +94,9 @@ def _load_detr() -> None:
 
 def _load_blip() -> None:
     if not BLIP_DIR.is_dir():
-        raise FileNotFoundError(f"BLIP cache missing: {BLIP_DIR}")
+        raise FileNotFoundError("BLIP cache directory missing")
+    from transformers import BlipForConditionalGeneration, BlipProcessor
+
     processor = BlipProcessor.from_pretrained(BLIP_DIR, local_files_only=True)
     model = BlipForConditionalGeneration.from_pretrained(BLIP_DIR, local_files_only=True)
     model.to(DEVICE)
@@ -105,32 +111,34 @@ def _load_catdog() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Load every model once. Partial failure is recorded; healthy endpoints still work."""
+    """Load every model once. Partial failure is recorded; core can still serve."""
+    logger.info("Application startup — loading models")
     loaders = {
+        "catdog": _load_catdog,
         "detr": _load_detr,
         "blip": _load_blip,
-        "catdog": _load_catdog,
     }
     for name, loader in loaders.items():
         try:
-            print(f"[startup] loading {name}...")
+            logger.info("Loading %s…", name)
             loader()
-            print(f"[startup] {name} ready")
-        except Exception as exc:  # keep other models usable
-            state["errors"][name] = str(exc)
-            print(f"[startup] {name} FAILED: {exc}")
+            logger.info("%s ready", name)
+        except Exception:
+            # Log full detail server-side; expose only a short safe message to clients.
+            logger.exception("%s failed to load", name)
+            state["errors"][name] = f"{name} failed to load"
     yield
+    logger.info("Application shutdown")
     state.clear()
 
 
 app = FastAPI(
     title="Image Models API",
-    description="DETR detection · BLIP captioning · Cat vs Dog classification (PyTorch)",
+    description="Cat vs Dog (core) · DETR · BLIP — PyTorch only",
     version="1.0.0",
     lifespan=lifespan,
 )
 
-# Browser frontend (Phase 2) will call this API from another origin/port.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -142,36 +150,78 @@ app.add_middleware(
 # ----------------------------------------------------------------------------
 # Shared helpers
 # ----------------------------------------------------------------------------
-async def read_rgb_image(upload: UploadFile) -> Image.Image:
-    """Validate upload + decode to RGB PIL image. Raises HTTPException on bad input."""
-    content_type = (upload.content_type or "").lower()
-    filename = upload.filename or ""
-    suffix = Path(filename).suffix.lower()
+def _http_error(status: int, error: str, message: str) -> HTTPException:
+    return HTTPException(status_code=status, detail={"error": error, "message": message})
 
-    # Accept by MIME or by extension (some clients send application/octet-stream).
-    if content_type and content_type not in ALLOWED_CONTENT_TYPES:
-        if suffix not in ALLOWED_SUFFIXES:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "unsupported_file_type",
-                    "message": f"Expected JPEG/PNG/WebP, got content_type={content_type!r}",
-                },
-            )
+
+async def read_rgb_image(upload: UploadFile) -> Image.Image:
+    """
+    Validate upload and decode to RGB.
+
+    Backend enforces limits independently of nginx:
+      - empty → 400
+      - > MAX_UPLOAD_BYTES → 413
+      - format must be JPEG/PNG/WebP (verified by Pillow, not client MIME alone)
+      - pixel count capped (decompression bomb guard)
+    """
+    # Early reject when the client sent Content-Length.
+    content_length = upload.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) > MAX_UPLOAD_BYTES:
+                raise _http_error(
+                    413,
+                    "file_too_large",
+                    f"Image exceeds maximum size of {MAX_UPLOAD_BYTES} bytes",
+                )
+        except ValueError:
+            pass
 
     data = await upload.read()
     if not data:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "empty_file", "message": "Uploaded file is empty"},
+        raise _http_error(400, "empty_file", "Uploaded file is empty")
+
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise _http_error(
+            413,
+            "file_too_large",
+            f"Image exceeds maximum size of {MAX_UPLOAD_BYTES} bytes",
         )
 
     try:
-        image = Image.open(io.BytesIO(data)).convert("RGB")
-    except UnidentifiedImageError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "invalid_image", "message": "Could not decode image bytes"},
+        with Image.open(io.BytesIO(data)) as raw:
+            fmt = (raw.format or "").upper()
+            if fmt not in ALLOWED_PIL_FORMATS:
+                raise _http_error(
+                    400,
+                    "unsupported_file_type",
+                    "Expected JPEG, PNG, or WebP image",
+                )
+            # Force full decode now (catches truncated files).
+            raw.load()
+            width, height = raw.size
+            if width <= 0 or height <= 0:
+                raise _http_error(400, "invalid_image", "Image has invalid dimensions")
+            if width * height > MAX_IMAGE_PIXELS:
+                raise _http_error(
+                    400,
+                    "image_too_large",
+                    "Image pixel count exceeds the allowed maximum",
+                )
+            image = raw.convert("RGB")
+    except HTTPException:
+        raise
+    except Image.DecompressionBombError as exc:
+        raise _http_error(
+            400,
+            "image_too_large",
+            "Image pixel count exceeds the allowed maximum",
+        ) from exc
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise _http_error(
+            400,
+            "invalid_image",
+            "Could not decode image bytes",
         ) from exc
 
     return image
@@ -182,12 +232,10 @@ def require_model(key: str, human_name: str, err_key: str) -> Any:
     obj = state.get(key)
     if obj is None:
         reason = state.get("errors", {}).get(err_key, "model not loaded")
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "model_unavailable",
-                "message": f"{human_name} is not available: {reason}",
-            },
+        raise _http_error(
+            503,
+            "model_unavailable",
+            f"{human_name} is not available: {reason}",
         )
     return obj
 
@@ -197,30 +245,32 @@ def require_model(key: str, human_name: str, err_key: str) -> Any:
 # ----------------------------------------------------------------------------
 @app.get("/health")
 def health():
-    """Compose-friendly healthcheck: 200 only when every model is loaded."""
+    """
+    Compose healthcheck: 200 when the CORE CatDog model is ready.
+
+    DETR/BLIP are extensions — their failures appear in JSON but do not
+    keep the frontend from starting. /detect and /caption still return 503
+    individually when their model is missing.
+    """
     models = {
+        "catdog": state.get("catdog_model") is not None,
         "detr": state.get("detr_model") is not None,
         "blip": state.get("blip_model") is not None,
-        "catdog": state.get("catdog_model") is not None,
     }
-    ok = all(models.values())
+    core_ready = models["catdog"]
     body: dict[str, Any] = {
-        "status": "ok" if ok else "starting",
+        "status": "ok" if core_ready else "unavailable",
+        "core_ready": core_ready,
         "models": models,
     }
     if state.get("errors"):
-        body["errors"] = state["errors"]
-    # 503 while models load / if any failed — docker compose waits on this
-    return JSONResponse(content=body, status_code=200 if ok else 503)
+        body["errors"] = dict(state["errors"])
+    return JSONResponse(content=body, status_code=200 if core_ready else 503)
 
 
 @app.post("/detect")
 async def detect(file: UploadFile = File(...)) -> dict[str, Any]:
-    """
-    Object detection (facebook/detr-resnet-50).
-
-    Returns boxes as [x, y, w, h] in original image pixel space, score > 0.7 only.
-    """
+    """Object detection (pretrained DETR). Boxes already filtered by SCORE_THRESHOLD."""
     processor = require_model("detr_processor", "DETR", "detr")
     model = require_model("detr_model", "DETR", "detr")
     image = await read_rgb_image(file)
@@ -229,7 +279,7 @@ async def detect(file: UploadFile = File(...)) -> dict[str, Any]:
     inputs = processor(images=image, return_tensors="pt")
     inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
 
-    with torch.no_grad():
+    with torch.inference_mode():
         outputs = model(**inputs)
 
     results = processor.post_process_object_detection(
@@ -260,12 +310,13 @@ async def detect(file: UploadFile = File(...)) -> dict[str, Any]:
         "detections": detections,
         "image_width": width,
         "image_height": height,
+        "threshold": SCORE_THRESHOLD,
     }
 
 
 @app.post("/caption")
 async def caption(file: UploadFile = File(...)) -> dict[str, str]:
-    """Image captioning (Salesforce/blip-image-captioning-base)."""
+    """Image captioning (pretrained BLIP)."""
     processor = require_model("blip_processor", "BLIP", "blip")
     model = require_model("blip_model", "BLIP", "blip")
     image = await read_rgb_image(file)
@@ -273,8 +324,7 @@ async def caption(file: UploadFile = File(...)) -> dict[str, str]:
     inputs = processor(images=image, return_tensors="pt")
     inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
 
-    with torch.no_grad():
-        # Unconditional caption (no text prompt) — BLIP generates a sentence.
+    with torch.inference_mode():
         out_ids = model.generate(**inputs, max_new_tokens=30)
 
     text = processor.decode(out_ids[0], skip_special_tokens=True).strip()
@@ -284,20 +334,19 @@ async def caption(file: UploadFile = File(...)) -> dict[str, str]:
 @app.post("/classify")
 async def classify(file: UploadFile = File(...)) -> dict[str, Any]:
     """
-    Cat vs Dog (our PyTorch CNN, weights in model/catdog.pt).
+    Cat vs Dog (core deliverable).
 
-    Preprocessing: resize to IMG_SIZE, keep pixels in 0..255 — /255 is inside
-    the model forward(), matching training. P(dog) >= 0.5 → "dog".
+    Preprocessing: resize to IMG_SIZE, pixels stay 0..255 — /255 is inside
+    CatDogCNN.forward(), matching training. P(dog) >= 0.5 → "dog".
     """
     model = require_model("catdog_model", "CatDog", "catdog")
     image = await read_rgb_image(file)
 
-    # Match training: Resize → float CHW 0..255 (no ToTensor /255).
     resized = image.resize((IMG_SIZE, IMG_SIZE))
     arr = np.asarray(resized, dtype=np.float32)  # HWC 0..255
     tensor = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).to(DEVICE)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         logit = model(tensor)
         p_dog = float(torch.sigmoid(logit).item())
 
